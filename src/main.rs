@@ -20,12 +20,18 @@ fn process_connection(mut conn: TcpStream) {
     let mut request_buffer: [u8; 512] = [0; 512];
 
     loop {
-        let n = conn.read(&mut request_buffer).unwrap();
-        if n == 0 {
-            break;
-        }
+        let _ = match conn.read(&mut request_buffer) {
+            Ok(0) => break,
+            Ok(n) => n,
+            Err(e) => {
+                println!("{e}");
+                break;
+            }
+        };
 
-        let req = String::from_utf8_lossy(&request_buffer).to_string();
+        let req = String::from_utf8_lossy(&request_buffer)
+            .trim_end_matches(char::from(0))
+            .to_string();
 
         println!("got request {req}");
 
@@ -36,6 +42,22 @@ fn process_connection(mut conn: TcpStream) {
             "ping" => {
                 let pong = "PONG\n";
                 let _ = conn.write(pong.as_bytes()).unwrap();
+            }
+            "set" => {
+                println!("{:?}", elems);
+                if elems.len() < 3 {
+                    conn.write("SET <key> <value>\n".as_bytes()).unwrap();
+                    continue;
+                }
+                conn.write("set exec\n".as_bytes()).unwrap();
+            }
+            "get" => {
+                println!("{:?}", elems);
+                if elems.len() < 2 {
+                    conn.write("GET <key>\n".as_bytes()).unwrap();
+                    continue;
+                }
+                conn.write("get exec\n".as_bytes()).unwrap();
             }
             _ => {
                 conn.write("not implemented yet\n".as_bytes()).unwrap();
