@@ -2,7 +2,9 @@
 
 ## TODO 
 
-- [ ] Heartbeat checks
+- [ ] Heartbeat checks 
+  - [ ] Get info about other nodes in cluster
+  - [ ] Process which checks every 300ms
 - [ ] Leader election
 - [ ] Log replication
 
