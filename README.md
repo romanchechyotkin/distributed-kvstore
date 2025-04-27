@@ -2,9 +2,9 @@
 
 ## TODO 
 
-[] Heartbeat checks
-[] Leader election
-[] Log replication
+- [] Heartbeat checks
+- [] Leader election
+- [] Log replication
 
 ### build proto
 ```sh
