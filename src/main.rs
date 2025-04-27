@@ -1,11 +1,14 @@
-use core::str;
-use std::{
-    collections::HashMap,
-    io::{Read, Write},
+mod proto {
+    tonic::include_proto!("proto");
+}
+
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
+    sync::Mutex,
 };
 
-const ADDR: &str = "127.0.0.1:6379";
+use std::{collections::HashMap, env, sync::Arc};
 
 struct Processor {
     store: Store,
@@ -18,11 +21,11 @@ impl Processor {
         }
     }
 
-    fn process_connection(&mut self, mut conn: TcpStream) {
+    async fn process_connection(&mut self, mut conn: TcpStream) {
         let mut request_buffer: [u8; 512] = [0; 512];
 
         loop {
-            let _ = match conn.read(&mut request_buffer) {
+            let _ = match conn.read(&mut request_buffer).await {
                 Ok(0) => break,
                 Ok(n) => n,
                 Err(e) => {
@@ -43,12 +46,12 @@ impl Processor {
             match cmd.to_lowercase().as_str() {
                 "ping" => {
                     let pong = "PONG\n";
-                    let _ = conn.write(pong.as_bytes()).unwrap();
+                    let _ = conn.write(pong.as_bytes()).await.unwrap();
                 }
                 "set" => {
                     println!("{:?}", elems);
                     if elems.len() < 3 {
-                        conn.write("SET <key> <value>\n".as_bytes()).unwrap();
+                        conn.write("SET <key> <value>\n".as_bytes()).await.unwrap();
                         continue;
                     }
 
@@ -60,22 +63,24 @@ impl Processor {
                 "get" => {
                     println!("{:?}", elems);
                     if elems.len() < 2 {
-                        conn.write("GET <key>\n".as_bytes()).unwrap();
+                        conn.write("GET <key>\n".as_bytes()).await.unwrap();
                         continue;
                     }
                     let key = elems[1];
 
                     match self.store.get(key) {
                         Some(value) => {
-                            conn.write(format!("{value}\n").as_bytes()).unwrap();
+                            conn.write(format!("{value}\n").as_bytes()).await.unwrap();
                         }
                         None => {
-                            conn.write("no such key\n".as_bytes()).unwrap();
+                            conn.write("no such key\n".as_bytes()).await.unwrap();
                         }
                     }
                 }
                 _ => {
-                    conn.write("not implemented yet\n".as_bytes()).unwrap();
+                    conn.write("not implemented yet\n".as_bytes())
+                        .await
+                        .unwrap();
                 }
             };
 
@@ -104,15 +109,49 @@ impl Store {
     }
 }
 
-fn main() {
-    let listener = TcpListener::bind(ADDR).unwrap();
-    let mut processor = Processor::new();
+#[tokio::main]
+async fn main() {
+    let args: Vec<String> = env::args().collect();
 
-    println!("tcp listener on {ADDR}");
-
-    for stream in listener.incoming() {
-        let conn = stream.unwrap();
-        println!("got connection {}", conn.peer_addr().unwrap());
-        processor.process_connection(conn);
+    if args.len() != 3 {
+        println!("provide tcp port and grpc port")
     }
+
+    let tcp_port = args[1].parse::<u16>().expect("Invalid TCP port");
+    let grpc_port = args[2].parse::<u16>().expect("Invalid gRPC port");
+
+    let tcp_handle = tokio::spawn(async move {
+        run_tcp_server(tcp_port).await;
+    });
+
+    let grpc_handle = tokio::spawn(async move {
+        run_grpc_server(grpc_port).await;
+    });
+
+    let _ = tokio::join!(tcp_handle, grpc_handle);
+}
+
+async fn run_tcp_server(port: u16) {
+    let addr = format!("127.0.0.1:{port}");
+
+    let listener = TcpListener::bind(&addr).await.unwrap();
+    let processor = Arc::new(Mutex::new(Processor::new()));
+
+    println!("tcp listener on {addr}");
+
+    loop {
+        let (socket, _) = listener.accept().await.unwrap();
+        let processor = Arc::clone(&processor);
+
+        tokio::spawn(async move {
+            let mut proc = processor.lock().await;
+            proc.process_connection(socket).await;
+        });
+    }
+}
+
+async fn run_grpc_server(port: u16) {
+    let addr = format!("127.0.0.1:{port}");
+
+    println!("grpc server on {addr}");
 }
