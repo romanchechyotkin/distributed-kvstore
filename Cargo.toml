@@ -7,6 +7,11 @@ edition = "2021"
 tonic = "0.13.0"
 tokio = { version = "1", features = ["full"] }
 prost = "0.13.5"
+clap =  { version = "4.5.37", features = ["derive"] }
 
 [build-dependencies]
 tonic-build = "0.13.0"
+
+[[bin]]
+name = "service_discovery"
+path = "src/service_discovery/main.rs"

@@ -2,13 +2,28 @@ mod proto {
     tonic::include_proto!("proto");
 }
 
+use clap::Parser;
+
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
     sync::Mutex,
 };
 
-use std::{collections::HashMap, env, sync::Arc};
+use std::{collections::HashMap, sync::Arc};
+
+/// Run kv store
+#[derive(Parser)]
+struct Cli {
+    /// Client tcp port
+    tcp_port: u16,
+
+    /// Internal grpc port
+    grpc_port: u16,
+
+    /// Cluster name
+    cluster_name: String,
+}
 
 struct Processor {
     store: Store,
@@ -111,21 +126,14 @@ impl Store {
 
 #[tokio::main]
 async fn main() {
-    let args: Vec<String> = env::args().collect();
-
-    if args.len() != 3 {
-        println!("provide tcp port and grpc port")
-    }
-
-    let tcp_port = args[1].parse::<u16>().expect("Invalid TCP port");
-    let grpc_port = args[2].parse::<u16>().expect("Invalid gRPC port");
+    let args = Cli::parse();
 
     let tcp_handle = tokio::spawn(async move {
-        run_tcp_server(tcp_port).await;
+        run_tcp_server(args.tcp_port).await;
     });
 
     let grpc_handle = tokio::spawn(async move {
-        run_grpc_server(grpc_port).await;
+        run_grpc_server(args.grpc_port).await;
     });
 
     let _ = tokio::join!(tcp_handle, grpc_handle);

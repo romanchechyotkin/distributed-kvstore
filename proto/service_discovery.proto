@@ -1,0 +1,28 @@
+syntax = "proto3";
+
+package service_discovery;
+
+service ServiceDiscovery {
+  rpc Register (RegisterRequest) returns (RegisterResponse);
+  rpc GetNodes (GetNodesRequest) returns (GetNodesResponse);
+}
+
+message Address {
+  string host = 1;
+  string port = 2;
+}
+
+message RegisterRequest {
+  Address addr = 1;
+  string cluster_name = 2;
+}
+
+message RegisterResponse {}
+
+message GetNodesRequest {
+  string cluster_name = 1;
+}
+
+message GetNodesResponse {
+  repeated string nodes = 1;
+}
