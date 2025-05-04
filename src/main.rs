@@ -1,13 +1,25 @@
 mod proto {
     tonic::include_proto!("proto");
+    tonic::include_proto!("service_discovery");
 }
 
 use clap::Parser;
+
+use proto::{
+    kv_store_server::{KvStore, KvStoreServer},
+    service_discovery_client::ServiceDiscoveryClient,
+    Address, AppendEntriesRequest, AppendEntriesResponse, RegisterRequest, RegisterResponse,
+    RequestVoteRequest, RequestVoteResponse,
+};
 
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
     sync::Mutex,
+};
+use tonic::{
+    transport::{Channel, Server as GrpcServer},
+    Code, Request, Response, Status,
 };
 
 use std::{collections::HashMap, sync::Arc};
@@ -23,6 +35,74 @@ struct Cli {
 
     /// Cluster name
     cluster_name: String,
+
+    /// Discovery service grpc port
+    discovery_port: u16,
+}
+
+struct Server {
+    server_grpc_port: u16,
+    cluster_name: String,
+
+    discovery_service_client: ServiceDiscoveryClient<Channel>,
+}
+
+impl Server {
+    async fn new(server_port: u16, cluster_name: String, discovery_port: u16) -> Server {
+        let client = ServiceDiscoveryClient::connect(format!("http://localhost:{discovery_port}"))
+            .await
+            .unwrap();
+
+        let mut srv = Server {
+            server_grpc_port: server_port,
+            discovery_service_client: client,
+            cluster_name,
+        };
+
+        srv.register_in_service_discovery().await;
+
+        srv
+    }
+
+    async fn register_in_service_discovery(&mut self) -> () {
+        println!("sent register request {}", self.server_grpc_port);
+
+        let resp = self
+            .discovery_service_client
+            .register(RegisterRequest {
+                addr: Some(Address {
+                    host: "127.0.0.1".into(),
+                    port: format!("{}", self.server_grpc_port),
+                }),
+                cluster_name: self.cluster_name.clone(),
+            })
+            .await
+            .unwrap();
+
+        println!("register response {:?}", resp);
+    }
+}
+
+#[tonic::async_trait]
+impl KvStore for Server {
+    async fn append_entries(
+        &self,
+        _request: Request<AppendEntriesRequest>,
+    ) -> Result<Response<AppendEntriesResponse>, Status> {
+        let resp = AppendEntriesResponse {
+            success: true,
+            term: String::from(""),
+        };
+        Ok(Response::new(resp))
+    }
+
+    async fn request_vote(
+        &self,
+        _request: Request<RequestVoteRequest>,
+    ) -> Result<Response<RequestVoteResponse>, Status> {
+        let resp = RequestVoteResponse {};
+        Ok(Response::new(resp))
+    }
 }
 
 struct Processor {
@@ -133,7 +213,7 @@ async fn main() {
     });
 
     let grpc_handle = tokio::spawn(async move {
-        run_grpc_server(args.grpc_port).await;
+        run_grpc_server(args.grpc_port, args.cluster_name, args.discovery_port).await;
     });
 
     let _ = tokio::join!(tcp_handle, grpc_handle);
@@ -158,8 +238,15 @@ async fn run_tcp_server(port: u16) {
     }
 }
 
-async fn run_grpc_server(port: u16) {
-    let addr = format!("127.0.0.1:{port}");
+async fn run_grpc_server(port: u16, cluster_name: String, discovery_port: u16) {
+    let addr = format!("127.0.0.1:{port}").parse().unwrap();
 
     println!("grpc server on {addr}");
+
+    let srv = Server::new(port, cluster_name, discovery_port).await;
+
+    let _ = GrpcServer::builder()
+        .add_service(KvStoreServer::new(srv))
+        .serve(addr)
+        .await;
 }
