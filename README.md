@@ -8,6 +8,12 @@
 - [ ] Leader election
 - [ ] Log replication
 
+UPD.
+
+- [ ] указать мастер ноду
+- [ ] указать slave ноды
+- [ ] делать туда репликацию
+
 ### build proto
 ```sh
 cargo build
