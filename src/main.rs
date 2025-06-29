@@ -36,7 +36,8 @@ async fn main() {
         args.grpc_port,
         args.cluster_name,
         args.discovery_port,
-    );
+    )
+    .await;
 
     _ = srv;
 }
