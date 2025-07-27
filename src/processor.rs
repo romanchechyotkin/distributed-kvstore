@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use crate::store::Store;
 
 use tokio::{
@@ -16,16 +18,16 @@ impl Processor {
         }
     }
 
-    pub async fn process_connection(&mut self, mut conn: TcpStream) {
+    pub async fn process_connection(&mut self, mut conn: TcpStream) -> Option<(String, String)> {
         let mut request_buffer: [u8; 512] = [0; 512];
 
         loop {
             let _ = match conn.read(&mut request_buffer).await {
-                Ok(0) => break,
+                Ok(0) => return None,
                 Ok(n) => n,
                 Err(e) => {
                     println!("{e}");
-                    break;
+                    return None;
                 }
             };
 
@@ -54,6 +56,11 @@ impl Processor {
                     let value = elems[2];
 
                     self.store.set(key, value);
+
+                    return Some((
+                        String::from_str(key).unwrap(),
+                        String::from_str(value).unwrap(),
+                    ));
                 }
                 "get" => {
                     println!("{:?}", elems);

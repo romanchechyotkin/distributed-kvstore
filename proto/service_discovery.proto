@@ -10,8 +10,9 @@ service ServiceDiscovery {
 
 message Address {
   string host = 1;
-  string port = 2;
-  bool master = 3;
+  string grpc_port = 2;
+  string tcp_port = 3;
+  bool master = 4;
 }
 
 message RegisterRequest {

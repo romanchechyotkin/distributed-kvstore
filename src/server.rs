@@ -13,6 +13,7 @@ use proto::{
 };
 
 use tokio::{
+    io::AsyncWriteExt,
     net::{TcpListener, TcpStream},
     sync::Mutex,
 };
@@ -86,7 +87,8 @@ impl Server {
             .register(RegisterRequest {
                 addr: Some(Address {
                     host: "127.0.0.1".into(),
-                    port: format!("{}", self.grpc_port),
+                    grpc_port: format!("{}", self.grpc_port),
+                    tcp_port: format!("{}", self.tcp_port),
                     master: self.master,
                 }),
                 cluster_name: self.cluster_name.clone(),
@@ -141,7 +143,40 @@ impl Server {
         let processor: Arc<Mutex<Processor>> = Arc::clone(&self.processor);
         let mut proc = processor.lock().await;
 
-        proc.process_connection(conn).await;
+        match proc.process_connection(conn).await {
+            Some(cmd) => {
+                let mut client = self.discovery_service_client.lock().await;
+
+                let resp = client
+                    .get_slaves(GetSlavesRequest {
+                        cluster_name: self.cluster_name.clone(),
+                    })
+                    .await
+                    .unwrap();
+
+                println!("get slaves response {:?}", resp);
+
+                let addresses: Vec<Address> = resp.get_ref().nodes.to_vec();
+                let mut slave_addr: String = String::from("");
+                let mut set_cmd: String = String::from("");
+
+                for addr in &addresses {
+                    slave_addr = format!("{}:{}", addr.host, addr.tcp_port);
+                    println!("result addr {slave_addr}");
+
+                    let mut stream = TcpStream::connect(slave_addr).await.unwrap();
+
+                    set_cmd = format!("SET {} {}", cmd.0, cmd.1);
+                    println!("result set_cmd {set_cmd}");
+
+                    let _ = stream.write_all(set_cmd.as_bytes()).await;
+                    let _ = stream.flush().await;
+                }
+            }
+            None => println!("nothing"),
+        }
+
+        println!("done");
     }
 }
 
