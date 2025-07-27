@@ -25,6 +25,10 @@ struct Cli {
 
     /// Discovery service grpc port
     discovery_port: u16,
+
+    /// MasterNode  (master = true / slave = false)
+    #[arg(short, long, action = clap::ArgAction::SetTrue)]
+    master_node: bool,
 }
 
 #[tokio::main]
@@ -35,6 +39,7 @@ async fn main() {
         args.tcp_port,
         args.grpc_port,
         args.cluster_name,
+        args.master_node,
         args.discovery_port,
     )
     .await;

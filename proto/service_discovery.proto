@@ -5,11 +5,13 @@ package service_discovery;
 service ServiceDiscovery {
   rpc Register (RegisterRequest) returns (RegisterResponse);
   rpc GetNodes (GetNodesRequest) returns (GetNodesResponse);
+  rpc GetSlaves (GetSlavesRequest) returns (GetSlavesResponse);
 }
 
 message Address {
   string host = 1;
   string port = 2;
+  bool master = 3;
 }
 
 message RegisterRequest {
@@ -24,5 +26,13 @@ message GetNodesRequest {
 }
 
 message GetNodesResponse {
-  repeated string nodes = 1;
+  repeated Address nodes = 1;
+}
+
+message GetSlavesRequest {
+  string cluster_name = 1;
+}
+
+message GetSlavesResponse {
+  repeated Address nodes = 1;
 }

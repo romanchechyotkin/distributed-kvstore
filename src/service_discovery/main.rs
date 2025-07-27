@@ -5,7 +5,8 @@ mod proto {
 use clap::Parser;
 use proto::{
     service_discovery_server::{ServiceDiscovery, ServiceDiscoveryServer},
-    GetNodesRequest, GetNodesResponse, RegisterRequest, RegisterResponse,
+    Address, GetNodesRequest, GetNodesResponse, GetSlavesRequest, GetSlavesResponse,
+    RegisterRequest, RegisterResponse,
 };
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::Mutex;
@@ -19,7 +20,7 @@ struct Cli {
 }
 
 struct DisoveryServer {
-    store: Arc<Mutex<HashMap<String, Vec<String>>>>,
+    store: Arc<Mutex<HashMap<String, Vec<Address>>>>,
 }
 
 impl DisoveryServer {
@@ -46,13 +47,10 @@ impl ServiceDiscovery for DisoveryServer {
                 let mut store = self.store.lock().await;
                 match store.get_mut(&cluster_name) {
                     Some(nodes) => {
-                        nodes.push(format!("{}:{}", addr.host, addr.port));
+                        nodes.push(addr);
                     }
                     None => {
-                        store.insert(
-                            cluster_name.clone(),
-                            vec![format!("{}:{}", addr.host, addr.port)],
-                        );
+                        store.insert(cluster_name.clone(), vec![addr]);
                     }
                 }
             }
@@ -77,6 +75,28 @@ impl ServiceDiscovery for DisoveryServer {
             Some(nodes) => {
                 let resp = GetNodesResponse {
                     nodes: nodes.clone(),
+                };
+
+                Ok(Response::new(resp))
+            }
+            None => Err(Status::new(Code::InvalidArgument, "no such cluster")),
+        }
+    }
+
+    async fn get_slaves(
+        &self,
+        request: Request<GetSlavesRequest>,
+    ) -> Result<Response<GetSlavesResponse>, Status> {
+        let request = request.into_inner();
+        println!("get nodes request {:?}", request);
+
+        let cluster_name = request.cluster_name;
+        let store = self.store.lock().await;
+
+        match store.get(&cluster_name) {
+            Some(nodes) => {
+                let resp = GetSlavesResponse {
+                    nodes: nodes.iter().filter(|a| !a.master).cloned().collect(),
                 };
 
                 Ok(Response::new(resp))

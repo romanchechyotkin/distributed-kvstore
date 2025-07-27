@@ -8,11 +8,14 @@ mod proto {
 use proto::{
     kv_store_server::{KvStore, KvStoreServer},
     service_discovery_client::ServiceDiscoveryClient,
-    Address, AppendEntriesRequest, AppendEntriesResponse, Entry, RegisterRequest,
+    Address, AppendEntriesRequest, AppendEntriesResponse, GetSlavesRequest, RegisterRequest,
     RequestVoteRequest, RequestVoteResponse,
 };
 
-use tokio::{net::TcpListener, sync::Mutex};
+use tokio::{
+    net::{TcpListener, TcpStream},
+    sync::Mutex,
+};
 
 use tonic::{
     transport::{Channel, Server as GrpcServer},
@@ -25,12 +28,11 @@ pub struct Server {
     tcp_port: u16,
     grpc_port: u16,
     cluster_name: String,
+    master: bool,
 
     processor: Arc<Mutex<Processor>>,
 
     discovery_service_client: Mutex<ServiceDiscoveryClient<Channel>>,
-
-    logs: Vec<Entry>,
 }
 
 impl Server {
@@ -38,6 +40,7 @@ impl Server {
         tcp_port: u16,
         grpc_port: u16,
         cluster_name: String,
+        master: bool,
         discovery_port: u16,
     ) -> Arc<Server> {
         let discovery_service_client =
@@ -50,10 +53,10 @@ impl Server {
         let srv = Arc::new(Server {
             tcp_port,
             grpc_port,
+            master,
             discovery_service_client: Mutex::new(discovery_service_client),
             processor,
             cluster_name,
-            logs: vec![],
         });
 
         let srv_grpc = Arc::clone(&srv);
@@ -84,6 +87,7 @@ impl Server {
                 addr: Some(Address {
                     host: "127.0.0.1".into(),
                     port: format!("{}", self.grpc_port),
+                    master: self.master,
                 }),
                 cluster_name: self.cluster_name.clone(),
             })
@@ -91,9 +95,20 @@ impl Server {
             .unwrap();
 
         println!("register response {:?}", resp);
+
+        if self.master {
+            let resp = client
+                .get_slaves(GetSlavesRequest {
+                    cluster_name: self.cluster_name.clone(),
+                })
+                .await
+                .unwrap();
+
+            println!("get slaves nodes response {:?}", resp);
+        }
     }
 
-    async fn run_tcp_server(&self) {
+    async fn run_tcp_server(self: Arc<Self>) {
         let addr = format!("127.0.0.1:{}", &self.tcp_port);
 
         let listener = TcpListener::bind(&addr).await.unwrap();
@@ -102,11 +117,11 @@ impl Server {
 
         loop {
             let (socket, _) = listener.accept().await.unwrap();
-            let processor: Arc<Mutex<Processor>> = Arc::clone(&self.processor);
+
+            let srv: Arc<Server> = Arc::clone(&self);
 
             tokio::spawn(async move {
-                let mut proc = processor.lock().await;
-                proc.process_connection(socket).await;
+                srv.process_tcp_connection(socket).await;
             });
         }
     }
@@ -120,13 +135,13 @@ impl Server {
             .add_service(KvStoreServer::new(self))
             .serve(addr)
             .await;
+    }
 
-        // tokio::spawn(async move {
-        //     // get nodes from cluster
-        //     // iterate
-        //     // send append_entries request
-        //     //
-        // });
+    async fn process_tcp_connection(self: Arc<Self>, conn: TcpStream) {
+        let processor: Arc<Mutex<Processor>> = Arc::clone(&self.processor);
+        let mut proc = processor.lock().await;
+
+        proc.process_connection(conn).await;
     }
 }
 
